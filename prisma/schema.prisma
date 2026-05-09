@@ -1,0 +1,1933 @@
+// prisma/schema.prisma
+// SECP - Sistema Eletrônico de Controle de Ponto
+// Arquitetura: Next.js 16+ App Router + Auth.js + Prisma + PostgreSQL + Redis/BullMQ + MinIO + pgvector
+// Multi-tenant institucional com isolamento lógico por tenantId e suporte a Auth.js database strategy.
+
+// Observações de produção:
+// 1. Todos os modelos de domínio do SECP possuem tenantId.
+// 2. O usuário global do Auth.js fica separado do servidor funcional do órgão.
+// 3. O perfil MASTER é global/plataforma. Perfis ADMINISTRADOR, GESTOR, SERVIDOR etc. são por tenant.
+// 4. Para biometria facial com pgvector, usa-se Unsupported("vector(512)"). Ajuste a dimensão conforme o modelo facial adotado.
+// 5. Para isolamento físico por schema/banco por tenant, este schema serve como base lógica; a estratégia pode ser complementada em runtime.
+
+// -----------------------------------------------------------------------------
+// GENERATOR / DATASOURCE
+// -----------------------------------------------------------------------------
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+
+  schemas = ["auth", "secp", "audit", "importacao"]
+
+  // Requer migrations com CREATE EXTENSION correspondente no PostgreSQL.
+  extensions = [pgcrypto, citext,  unaccent, uuid_ossp(map: "uuid-ossp"), pgvector(map: "vector")]
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS GERAIS
+// -----------------------------------------------------------------------------
+
+enum StatusRegistro {
+  ATIVO
+  INATIVO
+  BLOQUEADO
+  ARQUIVADO
+
+  @@schema("secp")
+}
+
+enum StatusTenant {
+  EM_IMPLANTACAO
+  ATIVO
+  SUSPENSO
+  BLOQUEADO
+  ENCERRADO
+
+  @@schema("secp")
+}
+
+enum TipoTenant {
+  PLATAFORMA
+  CONSELHO
+  TRIBUNAL
+  SECAO_JUDICIARIA
+  SUBSECAO_JUDICIARIA
+  ORGAO_EXTERNO
+
+  @@schema("secp")
+}
+
+enum PerfilGlobal {
+  MASTER
+  SUPORTE_PLATAFORMA
+  AUDITOR_GERAL
+
+  @@schema("auth")
+}
+
+enum PerfilTenant {
+  ADMINISTRADOR
+  GESTOR
+  SERVIDOR
+  RH
+  AUDITOR
+  OPERADOR_AFD
+  SUPORTE_TECNICO
+
+  @@schema("secp")
+}
+
+enum StatusVinculoUsuario {
+  PENDENTE
+  ATIVO
+  SUSPENSO
+  BLOQUEADO
+  REVOGADO
+
+  @@schema("secp")
+}
+
+enum TipoAuthProviderTenant {
+  CREDENTIALS_LOCAL
+  LDAP_ACTIVE_DIRECTORY
+  GOV_BR
+  CERTIFICADO_DIGITAL
+  GOOGLE
+  APPLE
+  MICROSOFT_ENTRA_ID
+
+  @@schema("secp")
+}
+
+enum TipoDocumentoIdentificacao {
+  CPF
+  RG
+  CNH
+  PASSAPORTE
+  CERTIDAO
+  OUTRO
+
+  @@schema("secp")
+}
+
+enum TipoUnidadeOrganizacional {
+  CJF
+  TRF
+  SECAO_JUDICIARIA
+  SUBSECAO_JUDICIARIA
+  DIRETORIA_FORO
+  SECRETARIA
+  NUCLEO
+  SECAO
+  SETOR
+  VARA_FEDERAL
+  TURMA_RECURSAL
+  GABINETE
+  CENTRO_JUDICIARIO
+  UNIDADE_ADMINISTRATIVA
+  UNIDADE_JUDICIAL
+  OUTRA
+
+  @@schema("secp")
+}
+
+enum NaturezaUnidade {
+  ADMINISTRATIVA
+  JUDICIAL
+  MISTA
+
+  @@schema("secp")
+}
+
+enum StatusServidor {
+  ATIVO
+  AFASTADO
+  CEDIDO
+  REMOVIDO
+  REDISTRIBUIDO
+  APOSENTADO
+  DESLIGADO
+  BLOQUEADO
+
+  @@schema("secp")
+}
+
+enum TipoVinculoServidor {
+  SERVIDOR_EFETIVO
+  SERVIDOR_REQUISITADO
+  CEDIDO
+  COMISSIONADO
+  ESTAGIARIO
+  TERCEIRIZADO
+  MAGISTRADO
+  COLABORADOR
+
+  @@schema("secp")
+}
+
+enum TipoChefia {
+  TITULAR
+  SUBSTITUTO
+  TEMPORARIO
+  RECESSO_FORENSE
+  DELEGADO
+
+  @@schema("secp")
+}
+
+enum DiaSemana {
+  DOMINGO
+  SEGUNDA
+  TERCA
+  QUARTA
+  QUINTA
+  SEXTA
+  SABADO
+
+  @@schema("secp")
+}
+
+enum TipoFeriado {
+  NACIONAL
+  ESTADUAL
+  MUNICIPAL
+  JUDICIARIO
+  PONTO_FACULTATIVO
+  RECESSO_FORENSE
+  SUSPENSAO_EXPEDIENTE
+  OUTRO
+
+  @@schema("secp")
+}
+
+enum TipoDispositivoPonto {
+  TOTEM
+  WEB
+  MOBILE
+  API
+  IMPORTACAO_AFD
+  AJUSTE_MANUAL
+
+  @@schema("secp")
+}
+
+enum TipoMarcacaoPonto {
+  ENTRADA
+  SAIDA
+  INICIO_INTERVALO
+  FIM_INTERVALO
+  ENTRADA_EXTRA
+  SAIDA_EXTRA
+  AJUSTE
+
+  @@schema("secp")
+}
+
+enum OrigemRegistroPonto {
+  BIOMETRIA_FACIAL
+  CERTIFICADO_DIGITAL
+  GOV_BR
+  LOGIN_SENHA
+  AFD
+  API
+  ADMINISTRATIVO
+
+  @@schema("secp")
+}
+
+enum StatusRegistroPonto {
+  VALIDO
+  PENDENTE_VALIDACAO
+  SUSPEITO
+  INVALIDADO
+  CANCELADO
+  SUBSTITUIDO
+
+  @@schema("secp")
+}
+
+enum StatusDiaPonto {
+  REGULAR
+  INCOMPLETO
+  AUSENCIA
+  ATRASO
+  SAIDA_ANTECIPADA
+  HORAS_EXCEDENTES
+  FERIADO
+  RECESSO
+  AFASTAMENTO
+  PENDENTE_AJUSTE
+  PENDENTE_APROVACAO
+
+  @@schema("secp")
+}
+
+enum TipoOcorrenciaPonto {
+  ATRASO
+  SAIDA_ANTECIPADA
+  AUSENCIA
+  MARCACAO_IMPAR
+  MARCACAO_DUPLICADA
+  SEM_INTERVALO
+  EXCESSO_JORNADA
+  BANCO_HORAS
+  PLANTAO
+  TELETRABALHO
+  AFASTAMENTO
+  OUTRO
+
+  @@schema("secp")
+}
+
+enum StatusSolicitacao {
+  RASCUNHO
+  ENVIADA
+  EM_ANALISE
+  APROVADA
+  REJEITADA
+  CANCELADA
+  DEVOLVIDA
+
+  @@schema("secp")
+}
+
+enum TipoSolicitacaoPonto {
+  INCLUSAO_MARCACAO
+  ALTERACAO_MARCACAO
+  EXCLUSAO_MARCACAO
+  JUSTIFICATIVA_AUSENCIA
+  JUSTIFICATIVA_ATRASO
+  ABONO
+  COMPENSACAO
+  BANCO_HORAS
+
+  @@schema("secp")
+}
+
+enum StatusFechamento {
+  ABERTO
+  EM_PROCESSAMENTO
+  PENDENTE_SERVIDOR
+  PENDENTE_CHEFIA
+  APROVADO_CHEFIA
+  HOMOLOGADO_RH
+  REABERTO
+  CANCELADO
+
+  @@schema("secp")
+}
+
+enum TipoFechamento {
+  MENSAL_ORDINARIO
+  DEZEMBRO_ORDINARIO_ATE_19
+  RECESSO_DEZEMBRO
+  RECESSO_JANEIRO
+  JANEIRO_ORDINARIO_APOS_06
+  EXTRAORDINARIO
+
+  @@schema("secp")
+}
+
+enum StatusImportacaoAfd {
+  RECEBIDO
+  ENFILEIRADO
+  PROCESSANDO
+  PROCESSADO
+  PROCESSADO_COM_ALERTAS
+  FALHOU
+  CANCELADO
+
+  @@schema("importacao")
+}
+
+enum StatusLinhaAfd {
+  PENDENTE
+  PROCESSADA
+  IGNORADA
+  DUPLICADA
+  ERRO
+
+  @@schema("importacao")
+}
+
+enum TipoLinhaAfd {
+  CABECALHO
+  IDENTIFICACAO_EMPREGADOR
+  MARCACAO_PONTO
+  AJUSTE_RELOGIO
+  INCLUSAO_ALTERACAO_EMPREGADO
+  EVENTO_SENSIVEL
+  TRAILER
+  DESCONHECIDA
+
+  @@schema("importacao")
+}
+
+enum TipoCompensacaoRecesso {
+  PECUNIA
+  FOLGA_COMPENSATORIA
+  BANCO_HORAS
+  NAO_DEFINIDA
+
+  @@schema("secp")
+}
+
+enum StatusRecesso {
+  PLANEJADO
+  ABERTO
+  EM_EXECUCAO
+  ENCERRADO
+  HOMOLOGADO
+  CANCELADO
+
+  @@schema("secp")
+}
+
+enum TipoCanalNotificacao {
+  SISTEMA
+  EMAIL
+  PUSH
+  WHATSAPP
+  WEBHOOK
+
+  @@schema("secp")
+}
+
+enum StatusNotificacao {
+  PENDENTE
+  ENVIADA
+  LIDA
+  FALHOU
+  CANCELADA
+
+  @@schema("secp")
+}
+
+enum SeveridadeAuditoria {
+  INFO
+  WARNING
+  ERROR
+  SECURITY
+  CRITICAL
+
+  @@schema("audit")
+}
+
+enum TipoEventoOutbox {
+  DOMAIN_EVENT
+  INTEGRATION_EVENT
+  NOTIFICATION_EVENT
+  AUDIT_EVENT
+
+  @@schema("secp")
+}
+
+enum StatusOutbox {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+  CANCELLED
+
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// AUTH.JS - SCHEMA auth
+// -----------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?   @db.VarChar(255)
+  email         String?   @unique @db.Citext
+  emailVerified DateTime?
+  image         String?   @db.Text
+
+  // Campos institucionais globais opcionais. Não substituem o cadastro de Servidor.
+  username      String?   @unique @db.Citext
+  cpfHash       String?   @unique @db.VarChar(128)
+  matricula     String?   @db.VarChar(50)
+  telefone      String?   @db.VarChar(30)
+  ativo         Boolean   @default(true)
+  bloqueadoAte  DateTime?
+  ultimoLoginEm DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts              Account[]
+  sessions              Session[]
+  authenticators        Authenticator[]
+  globalRoles           UserGlobalRole[]
+  tenantMemberships     UsuarioTenant[]
+  servidorVinculos      Servidor[]
+  identidadesExternas   IdentidadeExterna[]
+  certificadosDigitais  CertificadoDigitalVinculo[]
+  preferenciasDashboard PreferenciaDashboard[]
+  auditorias            AuditoriaEvento[]
+  notificacoes          Notificacao[]
+  pushSubscriptions     PushSubscription[]
+  apiKeys               ApiKey[]
+
+  @@index([email])
+  @@index([username])
+  @@index([cpfHash])
+  @@index([ativo])
+  @@schema("auth")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@index([provider])
+  @@schema("auth")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expires])
+  @@schema("auth")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@index([expires])
+  @@schema("auth")
+}
+
+model Authenticator {
+  credentialID         String  @unique
+  userId               String
+  providerAccountId    String
+  credentialPublicKey  String
+  counter              Int
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, credentialID])
+  @@index([userId])
+  @@schema("auth")
+}
+
+model UserGlobalRole {
+  id        String       @id @default(cuid())
+  userId    String
+  perfil    PerfilGlobal
+  ativo     Boolean      @default(true)
+  grantedAt DateTime     @default(now())
+  revokedAt DateTime?
+  grantedBy String?
+  motivo    String?      @db.Text
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, perfil])
+  @@index([perfil, ativo])
+  @@schema("auth")
+}
+
+model IdentidadeExterna {
+  id         String                 @id @default(cuid())
+  userId     String
+  tenantId   String?
+  provider   TipoAuthProviderTenant
+  externalId String                 @db.VarChar(255)
+  username   String?                @db.Citext
+  ldapDn     String?                @db.Text
+  metadata   Json?
+  ativo      Boolean                @default(true)
+  lastUsedAt DateTime?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId, tenantId])
+  @@index([userId])
+  @@index([tenantId, provider])
+  @@schema("auth")
+}
+
+model CertificadoDigitalVinculo {
+  id               String    @id @default(cuid())
+  userId           String
+  tenantId         String?
+  subject          String    @db.Text
+  issuer           String    @db.Text
+  serialNumberHash String    @db.VarChar(128)
+  thumbprintHash   String    @db.VarChar(128)
+  cpfHash          String?   @db.VarChar(128)
+  validFrom        DateTime?
+  validTo          DateTime?
+  ativo            Boolean   @default(true)
+  revogadoEm       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, serialNumberHash])
+  @@index([userId])
+  @@index([cpfHash])
+  @@index([ativo, validTo])
+  @@schema("auth")
+}
+
+// -----------------------------------------------------------------------------
+// TENANT / GOVERNANCA / LAYOUT
+// -----------------------------------------------------------------------------
+
+model Tenant {
+  id               String       @id @default(cuid())
+  codigo           String       @unique @db.VarChar(50)
+  slug             String       @unique @db.Citext
+  nome             String       @db.VarChar(255)
+  nomeFantasia     String?      @db.VarChar(255)
+  sigla            String       @db.VarChar(30)
+  cnpjHash         String?      @db.VarChar(128)
+  tipo             TipoTenant   @default(SECAO_JUDICIARIA)
+  status           StatusTenant @default(EM_IMPLANTACAO)
+  timezone         String       @default("America/Manaus") @db.VarChar(80)
+  schemaName       String?      @db.VarChar(80)
+  dominioPrincipal String?      @db.Citext
+  subdominio       String?      @unique @db.Citext
+  portariaBase     String?      @db.VarChar(120)
+  processoSei      String?      @db.VarChar(80)
+  dataImplantacao  DateTime?
+  metadata         Json?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  visualIdentity       TenantVisualIdentity?
+  authConfigs          TenantAuthConfig[]
+  parametros           ParametroTenant[]
+  featureFlags         FeatureFlagTenant[]
+  usuarioTenants       UsuarioTenant[]
+  identidadesExternas  IdentidadeExterna[]
+  certificadosDigitais CertificadoDigitalVinculo[]
+  permissoesPerfil     PerfilPermissaoTenant[]
+  unidades             UnidadeOrganizacional[]
+  tiposUnidade         TipoUnidadeCatalogo[]
+  cargos               Cargo[]
+  funcoes              FuncaoComissionada[]
+  servidores           Servidor[]
+  jornadas             JornadaTrabalho[]
+  jornadasServidor     JornadaServidor[]
+  jornadasUnidade      JornadaUnidade[]
+  feriados             Feriado[]
+  recessos             RecessoForense[]
+  dispositivos         DispositivoPonto[]
+  locaisPonto          LocalRegistroPonto[]
+  registrosPonto       RegistroPonto[]
+  diasPonto            DiaPontoResumo[]
+  ocorrenciasPonto     OcorrenciaPonto[]
+  solicitacoesPonto    SolicitacaoPonto[]
+  fechamentos          FechamentoMensal[]
+  importacoesAfd       ImportacaoAfd[]
+  templatesBiometria   BiometriaFaceTemplate[]
+  notificacoes         Notificacao[]
+  webhooks             WebhookEndpoint[]
+  apiKeys              ApiKey[]
+  auditorias           AuditoriaEvento[]
+  outboxEvents         OutboxEvent[]
+  anexos               ArquivoAnexo[]
+
+  @@index([status])
+  @@index([tipo, status])
+  @@index([sigla])
+  @@index([deletedAt])
+  @@schema("secp")
+}
+
+model TenantVisualIdentity {
+  id                 String  @id @default(cuid())
+  tenantId           String  @unique
+  appName            String  @default("SECP") @db.VarChar(120)
+  loginTitle         String? @db.VarChar(180)
+  loginSubtitle      String? @db.VarChar(255)
+  logoUrl            String? @db.Text
+  logoDarkUrl        String? @db.Text
+  faviconUrl         String? @db.Text
+  backgroundImageUrl String? @db.Text
+  primaryColor       String? @db.VarChar(20)
+  accentColor        String? @db.VarChar(20)
+  darkModeDefault    Boolean @default(false)
+  customCss          String? @db.Text
+  layoutConfig       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@schema("secp")
+}
+
+model TenantAuthConfig {
+  id       String                 @id @default(cuid())
+  tenantId String
+  provider TipoAuthProviderTenant
+  enabled  Boolean                @default(true)
+  ordem    Int                    @default(0)
+  nome     String?                @db.VarChar(120)
+
+  // Ex.: host AD, baseDN, clientId, issuer, callbackUrl, certificado, políticas etc.
+  configEncrypted Json?
+  metadata        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@index([tenantId, enabled])
+  @@schema("secp")
+}
+
+model ParametroTenant {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  chave               String   @db.VarChar(120)
+  valor               Json
+  descricao           String?  @db.Text
+  sensivel            Boolean  @default(false)
+  atualizadoPorUserId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, chave])
+  @@index([tenantId])
+  @@schema("secp")
+}
+
+model FeatureFlagTenant {
+  id         String   @id @default(cuid())
+  tenantId   String
+  chave      String   @db.VarChar(120)
+  habilitado Boolean  @default(false)
+  config     Json?
+  descricao  String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, chave])
+  @@index([tenantId, habilitado])
+  @@schema("secp")
+}
+
+model PreferenciaDashboard {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String?
+  perfil    String?  @db.VarChar(80)
+  layout    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId, perfil])
+  @@index([userId])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// RBAC POR TENANT
+// -----------------------------------------------------------------------------
+
+model UsuarioTenant {
+  id                 String               @id @default(cuid())
+  tenantId           String
+  userId             String
+  servidorId         String?
+  perfil             PerfilTenant
+  status             StatusVinculoUsuario @default(PENDENTE)
+  isDefaultTenant    Boolean              @default(false)
+  lotacaoPrincipalId String?
+  grantedAt          DateTime             @default(now())
+  revokedAt          DateTime?
+  grantedByUserId    String?
+  motivo             String?              @db.Text
+  metadata           Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  servidor         Servidor?              @relation(fields: [servidorId], references: [id], onDelete: SetNull)
+  lotacaoPrincipal UnidadeOrganizacional? @relation("UsuarioTenantLotacao", fields: [lotacaoPrincipalId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, userId, perfil])
+  @@index([tenantId, userId])
+  @@index([tenantId, perfil, status])
+  @@index([servidorId])
+  @@index([lotacaoPrincipalId])
+  @@schema("secp")
+}
+
+model Permissao {
+  id        String   @id @default(cuid())
+  codigo    String   @unique @db.VarChar(120)
+  nome      String   @db.VarChar(180)
+  modulo    String   @db.VarChar(80)
+  descricao String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  perfis PerfilPermissaoTenant[]
+
+  @@index([modulo])
+  @@schema("secp")
+}
+
+model PerfilPermissaoTenant {
+  id          String       @id @default(cuid())
+  tenantId    String
+  perfil      PerfilTenant
+  permissaoId String
+  permitido   Boolean      @default(true)
+  restricoes  Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permissao Permissao @relation(fields: [permissaoId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, perfil, permissaoId])
+  @@index([tenantId, perfil])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// ORGANIZACAO INSTITUCIONAL / HIERARQUIA
+// -----------------------------------------------------------------------------
+
+model TipoUnidadeCatalogo {
+  id        String                    @id @default(cuid())
+  tenantId  String
+  codigo    String                    @db.VarChar(60)
+  nome      String                    @db.VarChar(180)
+  tipoBase  TipoUnidadeOrganizacional
+  natureza  NaturezaUnidade           @default(ADMINISTRATIVA)
+  ativo     Boolean                   @default(true)
+  ordem     Int                       @default(0)
+  metadata  Json?
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+
+  tenant   Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unidades UnidadeOrganizacional[]
+
+  @@unique([tenantId, codigo])
+  @@index([tenantId, ativo])
+  @@schema("secp")
+}
+
+model UnidadeOrganizacional {
+  id             String          @id @default(cuid())
+  tenantId       String
+  parentId       String?
+  tipoCatalogoId String?
+  codigo         String          @db.VarChar(80)
+  sigla          String          @db.VarChar(50)
+  nome           String          @db.VarChar(255)
+  nomeCompleto   String?         @db.VarChar(500)
+  natureza       NaturezaUnidade @default(ADMINISTRATIVA)
+  nivel          Int             @default(0)
+  caminho        String?         @db.Text
+  ordem          Int             @default(0)
+  ativa          Boolean         @default(true)
+  permitePonto   Boolean         @default(true)
+  processoSei    String?         @db.VarChar(80)
+  metadata       Json?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent       UnidadeOrganizacional?  @relation("UnidadeHierarquia", fields: [parentId], references: [id], onDelete: Restrict)
+  children     UnidadeOrganizacional[] @relation("UnidadeHierarquia")
+  tipoCatalogo TipoUnidadeCatalogo?    @relation(fields: [tipoCatalogoId], references: [id], onDelete: SetNull)
+
+  usuariosLotacao     UsuarioTenant[]      @relation("UsuarioTenantLotacao")
+  servidoresLotados   Servidor[]           @relation("ServidorLotacao")
+  servidoresExercicio Servidor[]           @relation("ServidorExercicio")
+  gestores            UnidadeGestor[]
+  jornadas            JornadaUnidade[]
+  registrosPonto      RegistroPonto[]
+  diasPonto           DiaPontoResumo[]
+  ocorrenciasPonto    OcorrenciaPonto[]
+  solicitacoesPonto   SolicitacaoPonto[]
+  fechamentos         FechamentoMensal[]
+  convocacoesRecesso  ConvocacaoRecesso[]
+  dispositivos        DispositivoPonto[]
+  locaisPonto         LocalRegistroPonto[]
+
+  @@unique([tenantId, codigo])
+  @@index([tenantId, parentId])
+  @@index([tenantId, sigla])
+  @@index([tenantId, natureza, ativa])
+  @@index([tenantId, tipoCatalogoId])
+  @@index([deletedAt])
+  @@schema("secp")
+}
+
+model UnidadeGestor {
+  id          String     @id @default(cuid())
+  tenantId    String
+  unidadeId   String
+  servidorId  String
+  tipo        TipoChefia @default(TITULAR)
+  inicioEm    DateTime
+  fimEm       DateTime?
+  ativo       Boolean    @default(true)
+  portaria    String?    @db.VarChar(120)
+  processoSei String?    @db.VarChar(80)
+  observacao  String?    @db.Text
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unidade  UnidadeOrganizacional @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  servidor Servidor              @relation(fields: [servidorId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, unidadeId, ativo])
+  @@index([tenantId, servidorId, ativo])
+  @@index([inicioEm, fimEm])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// SERVIDORES / CARGOS / FUNCOES
+// -----------------------------------------------------------------------------
+
+model Cargo {
+  id            String   @id @default(cuid())
+  tenantId      String
+  codigo        String   @db.VarChar(60)
+  nome          String   @db.VarChar(180)
+  area          String?  @db.VarChar(180)
+  especialidade String?  @db.VarChar(180)
+  ativo         Boolean  @default(true)
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servidores Servidor[]
+
+  @@unique([tenantId, codigo])
+  @@index([tenantId, ativo])
+  @@schema("secp")
+}
+
+model FuncaoComissionada {
+  id        String   @id @default(cuid())
+  tenantId  String
+  codigo    String   @db.VarChar(60)
+  nome      String   @db.VarChar(180)
+  nivel     String?  @db.VarChar(30)
+  ativo     Boolean  @default(true)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servidores Servidor[]
+
+  @@unique([tenantId, codigo])
+  @@index([tenantId, ativo])
+  @@schema("secp")
+}
+
+model Servidor {
+  id                    String              @id @default(cuid())
+  tenantId              String
+  userId                String?
+  matricula             String              @db.VarChar(50)
+  matriculaRh           String?             @db.VarChar(50)
+  cpfHash               String              @db.VarChar(128)
+  nome                  String              @db.VarChar(255)
+  nomeSocial            String?             @db.VarChar(255)
+  emailInstitucional    String?             @db.Citext
+  telefoneInstitucional String?             @db.VarChar(30)
+  tipoVinculo           TipoVinculoServidor @default(SERVIDOR_EFETIVO)
+  status                StatusServidor      @default(ATIVO)
+  dataIngresso          DateTime?           @db.Date
+  dataDesligamento      DateTime?           @db.Date
+
+  cargoId            String?
+  funcaoId           String?
+  unidadeLotacaoId   String?
+  unidadeExercicioId String?
+
+  permitePonto          Boolean @default(true)
+  exigeBiometria        Boolean @default(true)
+  permiteRegistroWeb    Boolean @default(true)
+  permiteRegistroMobile Boolean @default(false)
+  cargaHorariaSemanal   Int? // minutos semanais ou horas, conforme parametrização do tenant.
+  metadata              Json?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user             User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cargo            Cargo?                 @relation(fields: [cargoId], references: [id], onDelete: SetNull)
+  funcao           FuncaoComissionada?    @relation(fields: [funcaoId], references: [id], onDelete: SetNull)
+  unidadeLotacao   UnidadeOrganizacional? @relation("ServidorLotacao", fields: [unidadeLotacaoId], references: [id], onDelete: SetNull)
+  unidadeExercicio UnidadeOrganizacional? @relation("ServidorExercicio", fields: [unidadeExercicioId], references: [id], onDelete: SetNull)
+
+  usuariosTenant         UsuarioTenant[]
+  gestores               UnidadeGestor[]
+  jornadas               JornadaServidor[]
+  registrosPonto         RegistroPonto[]
+  diasPonto              DiaPontoResumo[]
+  ocorrenciasPonto       OcorrenciaPonto[]
+  solicitacoesPonto      SolicitacaoPonto[]      @relation("SolicitantePonto")
+  solicitacoesAnalisadas SolicitacaoPonto[]      @relation("AnalistaPonto")
+  aprovacoes             AprovacaoSolicitacao[]
+  fechamentosServidor    FechamentoServidor[]
+  fechamentosChefia      FechamentoMensal[]      @relation("ChefiaFechamento")
+  convocacoesRecesso     ConvocacaoRecesso[]
+  diasRecesso            DiaConvocadoRecesso[]
+  templatesBiometria     BiometriaFaceTemplate[]
+  samplesBiometria       BiometriaFaceSample[]
+  afastamentos           AfastamentoServidor[]
+
+  @@unique([tenantId, matricula])
+  @@unique([tenantId, cpfHash])
+  @@unique([tenantId, userId])
+  @@index([tenantId, nome])
+  @@index([tenantId, emailInstitucional])
+  @@index([tenantId, status])
+  @@index([tenantId, unidadeLotacaoId])
+  @@index([tenantId, unidadeExercicioId])
+  @@index([cargoId])
+  @@index([funcaoId])
+  @@index([deletedAt])
+  @@schema("secp")
+}
+
+model AfastamentoServidor {
+  id          String    @id @default(cuid())
+  tenantId    String
+  servidorId  String
+  tipo        String    @db.VarChar(120)
+  descricao   String?   @db.Text
+  inicioEm    DateTime  @db.Date
+  fimEm       DateTime? @db.Date
+  processoSei String?   @db.VarChar(80)
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  servidor Servidor @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, servidorId, inicioEm, fimEm])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// JORNADA / EXPEDIENTE / CALENDARIO
+// -----------------------------------------------------------------------------
+
+model JornadaTrabalho {
+  id                     String   @id @default(cuid())
+  tenantId               String
+  codigo                 String   @db.VarChar(80)
+  nome                   String   @db.VarChar(180)
+  descricao              String?  @db.Text
+  cargaSemanalMinutos    Int
+  cargaDiariaMinutos     Int?
+  toleranciaEntradaMin   Int      @default(0)
+  toleranciaSaidaMin     Int      @default(0)
+  toleranciaIntervaloMin Int      @default(0)
+  permiteBancoHoras      Boolean  @default(false)
+  permiteTeletrabalho    Boolean  @default(false)
+  ativo                  Boolean  @default(true)
+  metadata               Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dias        JornadaDia[]
+  servidores  JornadaServidor[]
+  unidades    JornadaUnidade[]
+  fechamentos FechamentoServidor[]
+
+  @@unique([tenantId, codigo])
+  @@index([tenantId, ativo])
+  @@schema("secp")
+}
+
+model JornadaDia {
+  id              String    @id @default(cuid())
+  jornadaId       String
+  diaSemana       DiaSemana
+  diaUtil         Boolean   @default(true)
+  entradaPrevista DateTime? @db.Time(0)
+  saidaPrevista   DateTime? @db.Time(0)
+  intervaloInicio DateTime? @db.Time(0)
+  intervaloFim    DateTime? @db.Time(0)
+  cargaMinutos    Int       @default(0)
+  permiteFlexivel Boolean   @default(false)
+  metadata        Json?
+
+  jornada JornadaTrabalho @relation(fields: [jornadaId], references: [id], onDelete: Cascade)
+
+  @@unique([jornadaId, diaSemana])
+  @@index([diaSemana])
+  @@schema("secp")
+}
+
+model JornadaUnidade {
+  id         String    @id @default(cuid())
+  tenantId   String
+  unidadeId  String
+  jornadaId  String
+  inicioEm   DateTime  @db.Date
+  fimEm      DateTime? @db.Date
+  prioridade Int       @default(0)
+  ativo      Boolean   @default(true)
+  observacao String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unidade UnidadeOrganizacional @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  jornada JornadaTrabalho       @relation(fields: [jornadaId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, unidadeId, ativo])
+  @@index([tenantId, jornadaId])
+  @@index([inicioEm, fimEm])
+  @@schema("secp")
+}
+
+model JornadaServidor {
+  id         String    @id @default(cuid())
+  tenantId   String
+  servidorId String
+  jornadaId  String
+  inicioEm   DateTime  @db.Date
+  fimEm      DateTime? @db.Date
+  prioridade Int       @default(0)
+  ativo      Boolean   @default(true)
+  observacao String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servidor Servidor        @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+  jornada  JornadaTrabalho @relation(fields: [jornadaId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, servidorId, ativo])
+  @@index([tenantId, jornadaId])
+  @@index([inicioEm, fimEm])
+  @@schema("secp")
+}
+
+model Feriado {
+  id                 String      @id @default(cuid())
+  tenantId           String
+  data               DateTime    @db.Date
+  nome               String      @db.VarChar(180)
+  tipo               TipoFeriado
+  abrangencia        String?     @db.VarChar(120)
+  unidadeId          String?
+  expedienteSuspenso Boolean     @default(true)
+  metadata           Json?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, data, nome])
+  @@index([tenantId, data])
+  @@index([tenantId, tipo])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// RECESSO FORENSE - PORTARIA DIREF / FECHAMENTOS ESPECIAIS
+// -----------------------------------------------------------------------------
+
+model RecessoForense {
+  id            String        @id @default(cuid())
+  tenantId      String
+  anoReferencia Int
+  inicioEm      DateTime      @db.Date
+  fimEm         DateTime      @db.Date
+  status        StatusRecesso @default(PLANEJADO)
+  portaria      String?       @db.VarChar(120)
+  processoSei   String?       @db.VarChar(80)
+  observacao    String?       @db.Text
+  regras        Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  convocacoes ConvocacaoRecesso[]
+  fechamentos FechamentoMensal[]
+
+  @@unique([tenantId, anoReferencia])
+  @@index([tenantId, status])
+  @@index([inicioEm, fimEm])
+  @@schema("secp")
+}
+
+model ConvocacaoRecesso {
+  id          String   @id @default(cuid())
+  tenantId    String
+  recessoId   String
+  servidorId  String
+  unidadeId   String?
+  inicioEm    DateTime @db.Date
+  fimEm       DateTime @db.Date
+  portaria    String?  @db.VarChar(120)
+  processoSei String?  @db.VarChar(80)
+  observacao  String?  @db.Text
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  recesso  RecessoForense         @relation(fields: [recessoId], references: [id], onDelete: Cascade)
+  servidor Servidor               @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+  unidade  UnidadeOrganizacional? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  dias     DiaConvocadoRecesso[]
+
+  @@index([tenantId, recessoId])
+  @@index([tenantId, servidorId])
+  @@index([tenantId, unidadeId])
+  @@index([inicioEm, fimEm])
+  @@schema("secp")
+}
+
+model DiaConvocadoRecesso {
+  id                  String                 @id @default(cuid())
+  tenantId            String
+  convocacaoId        String
+  servidorId          String
+  data                DateTime               @db.Date
+  compensacao         TipoCompensacaoRecesso @default(NAO_DEFINIDA)
+  quantidadeMinutos   Int?
+  aprovadoPorServidor Boolean                @default(false)
+  aprovadoEm          DateTime?
+  observacao          String?                @db.Text
+  metadata            Json?
+
+  convocacao ConvocacaoRecesso @relation(fields: [convocacaoId], references: [id], onDelete: Cascade)
+  servidor   Servidor          @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+
+  @@unique([convocacaoId, data])
+  @@index([tenantId, servidorId, data])
+  @@index([tenantId, compensacao])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// DISPOSITIVOS / LOCAIS / BIOMETRIA
+// -----------------------------------------------------------------------------
+
+model LocalRegistroPonto {
+  id         String   @id @default(cuid())
+  tenantId   String
+  unidadeId  String?
+  codigo     String   @db.VarChar(80)
+  nome       String   @db.VarChar(180)
+  descricao  String?  @db.Text
+  latitude   Decimal? @db.Decimal(10, 7)
+  longitude  Decimal? @db.Decimal(10, 7)
+  raioMetros Int?
+  ativo      Boolean  @default(true)
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unidade      UnidadeOrganizacional? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  registros    RegistroPonto[]
+  dispositivos DispositivoPonto[]
+
+  @@unique([tenantId, codigo])
+  @@index([tenantId, unidadeId, ativo])
+  @@schema("secp")
+}
+
+model DispositivoPonto {
+  id           String               @id @default(cuid())
+  tenantId     String
+  unidadeId    String?
+  localId      String?
+  codigo       String               @db.VarChar(80)
+  nome         String               @db.VarChar(180)
+  tipo         TipoDispositivoPonto
+  serial       String?              @db.VarChar(120)
+  fabricante   String?              @db.VarChar(120)
+  modelo       String?              @db.VarChar(120)
+  ipPermitido  String?              @db.VarChar(80)
+  chavePublica String?              @db.Text
+  ativo        Boolean              @default(true)
+  ultimoPingEm DateTime?
+  metadata     Json?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  tenant    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unidade   UnidadeOrganizacional? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  local     LocalRegistroPonto?    @relation(fields: [localId], references: [id], onDelete: SetNull)
+  registros RegistroPonto[]
+
+  @@unique([tenantId, codigo])
+  @@unique([tenantId, serial])
+  @@index([tenantId, tipo, ativo])
+  @@index([tenantId, unidadeId])
+  @@schema("secp")
+}
+
+model BiometriaFaceTemplate {
+  id           String  @id @default(cuid())
+  tenantId     String
+  servidorId   String
+  versao       Int     @default(1)
+  provider     String  @default("vladmandic-human") @db.VarChar(120)
+  modelName    String  @db.VarChar(120)
+  modelVersion String? @db.VarChar(80)
+
+  // Ajuste a dimensão conforme o modelo facial real: 128, 512, 768 etc.
+  embedding     Unsupported("vector(512)")?
+  embeddingHash String                      @db.VarChar(128)
+
+  qualidade   Decimal?  @db.Decimal(5, 2)
+  ativo       Boolean   @default(true)
+  capturadoEm DateTime  @default(now())
+  expiradoEm  DateTime?
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servidor Servidor              @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+  samples  BiometriaFaceSample[]
+
+  @@unique([tenantId, servidorId, versao])
+  @@unique([tenantId, embeddingHash])
+  @@index([tenantId, servidorId, ativo])
+  @@index([ativo, expiradoEm])
+  @@schema("secp")
+}
+
+model BiometriaFaceSample {
+  id            String   @id @default(cuid())
+  tenantId      String
+  servidorId    String
+  templateId    String?
+  objectKey     String   @db.Text
+  bucket        String?  @db.VarChar(120)
+  mimeType      String?  @db.VarChar(80)
+  tamanhoBytes  Int?
+  qualidade     Decimal? @db.Decimal(5, 2)
+  livenessScore Decimal? @db.Decimal(5, 2)
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  servidor Servidor               @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+  template BiometriaFaceTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, servidorId])
+  @@index([templateId])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// REGISTRO DE PONTO / OCORRENCIAS / SOLICITACOES
+// -----------------------------------------------------------------------------
+
+model RegistroPonto {
+  id            String  @id @default(cuid())
+  tenantId      String
+  servidorId    String
+  unidadeId     String?
+  dispositivoId String?
+  localId       String?
+  linhaAfdId    String? @unique
+
+  dataHora       DateTime
+  dataReferencia DateTime            @db.Date
+  tipo           TipoMarcacaoPonto
+  origem         OrigemRegistroPonto
+  status         StatusRegistroPonto @default(VALIDO)
+
+  ip                        String?  @db.VarChar(80)
+  userAgent                 String?  @db.Text
+  latitude                  Decimal? @db.Decimal(10, 7)
+  longitude                 Decimal? @db.Decimal(10, 7)
+  geoPrecisaoMetros         Decimal? @db.Decimal(10, 2)
+  fotoObjectKey             String?  @db.Text
+  biometriaVerificada       Boolean  @default(false)
+  biometriaScore            Decimal? @db.Decimal(5, 2)
+  certificadoThumbprintHash String?  @db.VarChar(128)
+  hashRegistro              String   @unique @db.VarChar(128)
+  hashAnterior              String?  @db.VarChar(128)
+  assinaturaDispositivo     String?  @db.Text
+  observacao                String?  @db.Text
+  metadata                  Json?
+
+  criadoPorUserId     String?
+  invalidadoPorUserId String?
+  invalidadoEm        DateTime?
+  motivoInvalidacao   String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servidor    Servidor               @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+  unidade     UnidadeOrganizacional? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  dispositivo DispositivoPonto?      @relation(fields: [dispositivoId], references: [id], onDelete: SetNull)
+  local       LocalRegistroPonto?    @relation(fields: [localId], references: [id], onDelete: SetNull)
+  linhaAfd    LinhaAfd?              @relation(fields: [linhaAfdId], references: [id], onDelete: SetNull)
+
+  ocorrencias OcorrenciaPonto[]
+
+  @@index([tenantId, servidorId, dataReferencia])
+  @@index([tenantId, dataReferencia])
+  @@index([tenantId, dataHora])
+  @@index([tenantId, unidadeId, dataReferencia])
+  @@index([tenantId, status])
+  @@index([tenantId, origem])
+  @@index([dispositivoId])
+  @@schema("secp")
+}
+
+model DiaPontoResumo {
+  id                     String         @id @default(cuid())
+  tenantId               String
+  servidorId             String
+  unidadeId              String?
+  data                   DateTime       @db.Date
+  status                 StatusDiaPonto @default(REGULAR)
+  jornadaPrevistaMinutos Int            @default(0)
+  trabalhadoMinutos      Int            @default(0)
+  intervaloMinutos       Int            @default(0)
+  saldoMinutos           Int            @default(0)
+  atrasoMinutos          Int            @default(0)
+  saidaAntecipadaMinutos Int            @default(0)
+  extraMinutos           Int            @default(0)
+  registros              Json?
+  calculadoEm            DateTime?
+  metadata               Json?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  tenant   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servidor Servidor               @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+  unidade  UnidadeOrganizacional? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+
+  ocorrencias OcorrenciaPonto[]
+
+  @@unique([tenantId, servidorId, data])
+  @@index([tenantId, data])
+  @@index([tenantId, unidadeId, data])
+  @@index([tenantId, status])
+  @@schema("secp")
+}
+
+model OcorrenciaPonto {
+  id              String              @id @default(cuid())
+  tenantId        String
+  servidorId      String
+  unidadeId       String?
+  diaResumoId     String?
+  registroPontoId String?
+  tipo            TipoOcorrenciaPonto
+  status          StatusSolicitacao   @default(ENVIADA)
+  dataReferencia  DateTime            @db.Date
+  descricao       String?             @db.Text
+  minutos         Int?
+  justificativa   String?             @db.Text
+  metadata        Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servidor      Servidor               @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+  unidade       UnidadeOrganizacional? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  diaResumo     DiaPontoResumo?        @relation(fields: [diaResumoId], references: [id], onDelete: SetNull)
+  registroPonto RegistroPonto?         @relation(fields: [registroPontoId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, servidorId, dataReferencia])
+  @@index([tenantId, unidadeId, dataReferencia])
+  @@index([tenantId, tipo, status])
+  @@schema("secp")
+}
+
+model SolicitacaoPonto {
+  id             String               @id @default(cuid())
+  tenantId       String
+  servidorId     String
+  unidadeId      String?
+  tipo           TipoSolicitacaoPonto
+  status         StatusSolicitacao    @default(RASCUNHO)
+  dataReferencia DateTime             @db.Date
+  descricao      String               @db.Text
+  payload        Json?
+  analisadoPorId String?
+  analisadoEm    DateTime?
+  decisao        String?              @db.Text
+  processoSei    String?              @db.VarChar(80)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servidor     Servidor               @relation("SolicitantePonto", fields: [servidorId], references: [id], onDelete: Cascade)
+  unidade      UnidadeOrganizacional? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  analisadoPor Servidor?              @relation("AnalistaPonto", fields: [analisadoPorId], references: [id], onDelete: SetNull)
+
+  aprovacoes AprovacaoSolicitacao[]
+  anexos     ArquivoAnexo[]
+
+  @@index([tenantId, servidorId, dataReferencia])
+  @@index([tenantId, unidadeId, status])
+  @@index([tenantId, tipo, status])
+  @@index([analisadoPorId])
+  @@schema("secp")
+}
+
+model AprovacaoSolicitacao {
+  id            String            @id @default(cuid())
+  tenantId      String
+  solicitacaoId String
+  aprovadorId   String
+  status        StatusSolicitacao
+  comentario    String?           @db.Text
+  nivel         Int               @default(1)
+  decididoEm    DateTime          @default(now())
+  metadata      Json?
+
+  solicitacao SolicitacaoPonto @relation(fields: [solicitacaoId], references: [id], onDelete: Cascade)
+  aprovador   Servidor         @relation(fields: [aprovadorId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, solicitacaoId])
+  @@index([tenantId, aprovadorId])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// FECHAMENTO MENSAL / HOMOLOGACAO
+// -----------------------------------------------------------------------------
+
+model FechamentoMensal {
+  id               String           @id @default(cuid())
+  tenantId         String
+  unidadeId        String
+  chefiaId         String?
+  recessoId        String?
+  ano              Int
+  mes              Int
+  competencia      String           @db.VarChar(7) // YYYY-MM
+  tipo             TipoFechamento   @default(MENSAL_ORDINARIO)
+  periodoInicio    DateTime         @db.Date
+  periodoFim       DateTime         @db.Date
+  status           StatusFechamento @default(ABERTO)
+  totalServidores  Int              @default(0)
+  totalPendencias  Int              @default(0)
+  fechadoEm        DateTime?
+  aprovadoChefiaEm DateTime?
+  homologadoRhEm   DateTime?
+  observacao       String?          @db.Text
+  metadata         Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unidade UnidadeOrganizacional @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  chefia  Servidor?             @relation("ChefiaFechamento", fields: [chefiaId], references: [id], onDelete: SetNull)
+  recesso RecessoForense?       @relation(fields: [recessoId], references: [id], onDelete: SetNull)
+
+  servidores FechamentoServidor[]
+
+  @@unique([tenantId, unidadeId, ano, mes, tipo])
+  @@index([tenantId, competencia])
+  @@index([tenantId, unidadeId, status])
+  @@index([tenantId, chefiaId, status])
+  @@index([periodoInicio, periodoFim])
+  @@schema("secp")
+}
+
+model FechamentoServidor {
+  id                       String           @id @default(cuid())
+  tenantId                 String
+  fechamentoId             String
+  servidorId               String
+  jornadaId                String?
+  status                   StatusFechamento @default(ABERTO)
+  diasUteis                Int              @default(0)
+  diasTrabalhados          Int              @default(0)
+  faltas                   Int              @default(0)
+  atrasosMinutos           Int              @default(0)
+  saidasAntecipadasMinutos Int              @default(0)
+  trabalhadoMinutos        Int              @default(0)
+  previstoMinutos          Int              @default(0)
+  saldoMinutos             Int              @default(0)
+  bancoHorasMinutos        Int              @default(0)
+  pendencias               Int              @default(0)
+  cienciaServidorEm        DateTime?
+  aprovadoChefiaEm         DateTime?
+  homologadoRhEm           DateTime?
+  resumo                   Json?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  fechamento FechamentoMensal @relation(fields: [fechamentoId], references: [id], onDelete: Cascade)
+  servidor   Servidor         @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+  jornada    JornadaTrabalho? @relation(fields: [jornadaId], references: [id], onDelete: SetNull)
+
+  @@unique([fechamentoId, servidorId])
+  @@index([tenantId, servidorId])
+  @@index([tenantId, status])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// AFD / IMPORTACAO
+// -----------------------------------------------------------------------------
+
+model ImportacaoAfd {
+  id                String              @id @default(cuid())
+  tenantId          String
+  unidadeId         String?
+  dispositivoId     String?
+  originalName      String              @db.VarChar(255)
+  objectKey         String              @db.Text
+  bucket            String?             @db.VarChar(120)
+  mimeType          String?             @db.VarChar(80)
+  tamanhoBytes      Int?
+  checksumSha256    String              @db.VarChar(128)
+  status            StatusImportacaoAfd @default(RECEBIDO)
+  linhasTotal       Int                 @default(0)
+  linhasProcessadas Int                 @default(0)
+  linhasErro        Int                 @default(0)
+  iniciadoEm        DateTime?
+  finalizadoEm      DateTime?
+  erro              String?             @db.Text
+  metadata          Json?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  linhas LinhaAfd[]
+
+  @@unique([tenantId, checksumSha256])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@schema("importacao")
+}
+
+model LinhaAfd {
+  id                String         @id @default(cuid())
+  tenantId          String
+  importacaoId      String
+  nsr               Int?
+  tipoLinha         TipoLinhaAfd
+  status            StatusLinhaAfd @default(PENDENTE)
+  numeroLinha       Int
+  dataHora          DateTime?
+  cpfHash           String?        @db.VarChar(128)
+  pisPasepHash      String?        @db.VarChar(128)
+  matricula         String?        @db.VarChar(50)
+  serialEquipamento String?        @db.VarChar(120)
+  rawLine           String         @db.Text
+  parsedJson        Json?
+  erro              String?        @db.Text
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  importacao ImportacaoAfd  @relation(fields: [importacaoId], references: [id], onDelete: Cascade)
+  registro   RegistroPonto?
+
+  @@unique([tenantId, importacaoId, numeroLinha])
+  @@index([tenantId, importacaoId, status])
+  @@index([tenantId, cpfHash, dataHora])
+  @@index([tenantId, matricula, dataHora])
+  @@index([tenantId, nsr])
+  @@schema("importacao")
+}
+
+// -----------------------------------------------------------------------------
+// ANEXOS / STORAGE / MINIO
+// -----------------------------------------------------------------------------
+
+model ArquivoAnexo {
+  id              String    @id @default(cuid())
+  tenantId        String
+  solicitacaoId   String?
+  nomeOriginal    String    @db.VarChar(255)
+  objectKey       String    @db.Text
+  bucket          String    @db.VarChar(120)
+  mimeType        String?   @db.VarChar(80)
+  tamanhoBytes    Int?
+  checksumSha256  String?   @db.VarChar(128)
+  criadoPorUserId String?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  solicitacao SolicitacaoPonto? @relation(fields: [solicitacaoId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, solicitacaoId])
+  @@index([tenantId, checksumSha256])
+  @@index([deletedAt])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// NOTIFICACOES / PUSH / WEBHOOKS
+// -----------------------------------------------------------------------------
+
+model Notificacao {
+  id          String               @id @default(cuid())
+  tenantId    String
+  userId      String?
+  servidorId  String?
+  canal       TipoCanalNotificacao
+  status      StatusNotificacao    @default(PENDENTE)
+  assunto     String               @db.VarChar(180)
+  mensagem    String               @db.Text
+  payload     Json?
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  readAt      DateTime?
+  erro        String?              @db.Text
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, status])
+  @@index([tenantId, canal, status])
+  @@index([scheduledAt])
+  @@schema("secp")
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String?
+  endpoint  String   @db.Text
+  p256dh    String   @db.Text
+  auth      String   @db.Text
+  userAgent String?  @db.Text
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@index([userId, ativo])
+  @@schema("secp")
+}
+
+model WebhookEndpoint {
+  id            String    @id @default(cuid())
+  tenantId      String
+  nome          String    @db.VarChar(180)
+  url           String    @db.Text
+  secretHash    String?   @db.VarChar(128)
+  eventos       String[]
+  ativo         Boolean   @default(true)
+  ultimoEnvioEm DateTime?
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ativo])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// API KEYS / INTEGRACOES / IDEMPOTENCIA / OUTBOX
+// -----------------------------------------------------------------------------
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  tenantId   String?
+  userId     String?
+  nome       String    @db.VarChar(180)
+  keyHash    String    @unique @db.VarChar(128)
+  prefix     String    @db.VarChar(20)
+  scopes     String[]
+  ativo      Boolean   @default(true)
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ativo])
+  @@index([userId, ativo])
+  @@schema("secp")
+}
+
+model IdempotencyKey {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  key         String   @db.VarChar(180)
+  requestHash String   @db.VarChar(128)
+  response    Json?
+  statusCode  Int?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, key])
+  @@index([expiresAt])
+  @@schema("secp")
+}
+
+model OutboxEvent {
+  id            String           @id @default(cuid())
+  tenantId      String?
+  type          TipoEventoOutbox
+  aggregateType String           @db.VarChar(120)
+  aggregateId   String           @db.VarChar(120)
+  eventName     String           @db.VarChar(180)
+  payload       Json
+  headers       Json?
+  status        StatusOutbox     @default(PENDING)
+  attempts      Int              @default(0)
+  nextAttemptAt DateTime?
+  publishedAt   DateTime?
+  erro          String?          @db.Text
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status, nextAttemptAt])
+  @@index([aggregateType, aggregateId])
+  @@index([eventName])
+  @@schema("secp")
+}
+
+// -----------------------------------------------------------------------------
+// AUDITORIA / TRILHA DE SEGURANCA
+// -----------------------------------------------------------------------------
+
+model AuditoriaEvento {
+  id            String              @id @default(cuid())
+  tenantId      String?
+  userId        String?
+  servidorId    String?
+  severidade    SeveridadeAuditoria @default(INFO)
+  acao          String              @db.VarChar(180)
+  entidade      String              @db.VarChar(120)
+  entidadeId    String?             @db.VarChar(120)
+  modulo        String?             @db.VarChar(80)
+  ip            String?             @db.VarChar(80)
+  userAgent     String?             @db.Text
+  requestId     String?             @db.VarChar(120)
+  correlationId String?             @db.VarChar(120)
+  before        Json?
+  after         Json?
+  metadata      Json?
+  createdAt     DateTime            @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entidade, entidadeId])
+  @@index([userId, createdAt])
+  @@index([severidade, createdAt])
+  @@index([correlationId])
+  @@schema("audit")
+}
+
+// -----------------------------------------------------------------------------
+// JOBS / PROCESSAMENTO ASSINCRONO - METADADOS DE CONTROLE
+// -----------------------------------------------------------------------------
+
+model JobProcessamento {
+  id          String    @id @default(cuid())
+  tenantId    String?
+  fila        String    @db.VarChar(120)
+  nome        String    @db.VarChar(180)
+  jobKey      String?   @db.VarChar(180)
+  payload     Json?
+  status      String    @default("PENDING") @db.VarChar(40)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  erro        String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId, fila, status])
+  @@index([scheduledAt])
+  @@schema("secp")
+}
