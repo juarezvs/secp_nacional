@@ -14,15 +14,15 @@ import {
 
 export default function LoginPage() {
   return (
-    <main className="min-h-screen bg-[#F5F7F8] dark:bg-[#020817] p-4 lg:p-8">
-      <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-[1800px] overflow-hidden rounded-[32px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#020817] shadow-2xl">
+    <main className="min-h-screen bg-[#F5F7F8] dark:bg-[#020817] p-8 lg:p-8">
+      <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-450 overflow-hidden rounded-4xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#020817] shadow-2xl">
         {/* LEFT SIDE */}
-        <section className="relative hidden w-[42%] overflow-hidden bg-gradient-to-br from-[#013220] via-[#014421] to-[#016630] lg:flex">
+        <section className="relative hidden w-[42%] overflow-hidden bg-linear-to-br from-[#013220] via-[#014421] to-[#016630] lg:flex">
           {/* EFFECT */}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(34,197,94,0.18),transparent_40%)]" />
 
           {/* CONTENT */}
-          <div className="relative z-10 flex h-full flex-col justify-between p-14 text-white">
+          <div className="relative z-10 flex h-full flex-col justify-between p-10 text-white">
             {/* TOP */}
             <div>
               <div className="flex items-center gap-5">
@@ -34,6 +34,8 @@ export default function LoginPage() {
                   <h1 className="text-6xl font-black tracking-tight">
                     SECP
                   </h1>
+              
+                    
 
                   <p className="mt-2 text-xl text-white/80">
                     Sistema Eletrônico de Controle de Ponto
@@ -41,7 +43,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div className="mt-20 max-w-xl">
+              <div className="mt-1 max-w-xl">
                 <div className="mb-8 h-1 w-20 rounded-full bg-emerald-400" />
 
                 <h2 className="text-4xl font-bold leading-tight">
@@ -49,14 +51,14 @@ export default function LoginPage() {
                   jornadas e banco de horas.
                 </h2>
 
-                <p className="mt-6 text-lg leading-8 text-white/75">
+                <p className="mt-3 text-lg leading-8 text-white/75">
                   Solução institucional moderna, segura e aderente às
                   normas da Justiça Federal.
                 </p>
               </div>
 
               {/* FEATURES */}
-              <div className="mt-16 space-y-6">
+              <div className="mt-5 space-y-6">
                 {[
                   {
                     title:
@@ -100,9 +102,9 @@ export default function LoginPage() {
             </div>
 
             {/* FOOTER */}
-            <div className="border-t border-white/10 pt-8">
+            <div className="border-t border-white/10 pt-16">
               <div className="flex items-center gap-4">
-                <div className="h-14 w-14 rounded-2xl bg-white/10" />
+                <div className="h-6  w-14 rounded-2xl bg-white/10" />
 
                 <div>
                   <div className="font-semibold">
@@ -155,7 +157,7 @@ export default function LoginPage() {
               </div>
 
               {/* FORM */}
-              <div className="mt-14 space-y-8">
+              <div className="mt-7 space-y-8">
                 {/* USER */}
                 <div>
                   <label className="mb-3 block text-lg font-semibold text-zinc-900 dark:text-white">
@@ -249,7 +251,7 @@ export default function LoginPage() {
               </div>
 
               {/* FOOTER */}
-              <div className="mt-16 flex items-center justify-between border-t border-zinc-200 dark:border-zinc-800 pt-8">
+              <div className="mt-4 flex items-center justify-between border-t border-zinc-200 dark:border-zinc-800 pt-8">
                 <div className="flex items-center gap-3 text-zinc-600 dark:text-zinc-400">
                   <ShieldCheck size={20} />
 
